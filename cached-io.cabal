@@ -23,7 +23,7 @@ build-type:          Simple
 cabal-version:       >=1.10
 
 source-repository head
-  type: tag
+  type: git
   location:  git://github.com:SumAll/haskell-cached-io.git
 
 library
