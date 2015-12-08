@@ -17,6 +17,7 @@ cachedIO :: NominalDiffTime -> IO a -> IO (IO a)
 cachedIO interval io = do
   initValue <- io
   initTime <- getCurrentTime
+  getCurrentTime
   cachedT <- atomically (newTVar (initTime, initValue))
   return $ do
     now <- getCurrentTime
