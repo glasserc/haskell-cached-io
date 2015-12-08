@@ -12,3 +12,7 @@ lets you memoize the action forever.
 ### Example
 
 See test/test-cachedIO.hs.
+
+#### Test
+
+Testing Jenkins stuff.
