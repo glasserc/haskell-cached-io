@@ -16,6 +16,6 @@ searchEngine query internet = do
 
 main :: IO ()
 main = do
-    cachedInternet <- cachedIO 600 crawlTheInternet 12   -- 10 minute cache
+    cachedInternet <- cachedIO 600 crawlTheInternet   -- 10 minute cache
     print =<< searchEngine "Haskell" cachedInternet
     print =<< searchEngine "C#" cachedInternet

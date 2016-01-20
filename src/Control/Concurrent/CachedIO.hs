@@ -13,10 +13,11 @@ import Data.Time.Clock (NominalDiffTime, addUTCTime, getCurrentTime)
 -- The outer IO is responsible for setting up the cache. Use the inner one to
 -- either get the cached value or refresh, if the cache is older than 'interval'
 -- seconds.
-cachedIO :: NominalDiffTime -> IO a -> Int -> IO (IO a)
-cachedIO interval io blah = do
+cachedIO :: NominalDiffTime -> IO a -> IO (IO a)
+cachedIO interval io = do
   initValue <- io
   initTime <- getCurrentTime
+  getCurrentTime
   cachedT <- atomically (newTVar (initTime, initValue))
   return $ do
     now <- getCurrentTime
