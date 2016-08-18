@@ -2,7 +2,7 @@
 -- documentation, see http://haskell.org/cabal/users-guide/
 
 name:                cached-io
-version:             0.1.1.0
+version:             1.0.0.0
 synopsis:
   A simple library to cache a single IO action with timeout
 description:
