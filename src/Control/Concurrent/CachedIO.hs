@@ -1,10 +1,11 @@
 module Control.Concurrent.CachedIO (
-    cachedIO
+    cachedIO,
+    cachedIOWith
     ) where
 
 import Control.Concurrent.STM (atomically, newTVar, readTVar, writeTVar, retry)
 import Control.Monad (join)
-import Data.Time.Clock (NominalDiffTime, addUTCTime, getCurrentTime)
+import Data.Time.Clock (NominalDiffTime, addUTCTime, getCurrentTime, UTCTime)
 
 data State = Uninitialized | Initializing
 
@@ -14,8 +15,29 @@ data State = Uninitialized | Initializing
 -- The outer IO is responsible for setting up the cache. Use the inner one to
 -- either get the cached value or refresh, if the cache is older than 'interval'
 -- seconds.
-cachedIO :: NominalDiffTime -> IO a -> IO (IO a)
-cachedIO interval io = do
+cachedIO :: NominalDiffTime -- ^ Number of seconds before refreshing cache
+         -> IO a            -- ^ IO action to cache
+         -> IO (IO a)
+cachedIO interval = cachedIOWith (intervalPassed interval)
+
+-- | Check if `interval` seconds have passed from the starting time
+intervalPassed :: NominalDiffTime  -- ^ Seconds
+               -> UTCTime          -- ^ Last time cache was updated
+               -> UTCTime          -- ^ Now
+               -> Bool
+intervalPassed interval lastUpdated now = addUTCTime interval lastUpdated > now
+
+-- | Cache an IO action, The cache begins uninitialized.
+--
+-- The outer IO is responsible for setting up the cache. Use the inner one to
+-- either get the cached value or refresh
+cachedIOWith :: (UTCTime -> UTCTime -> Bool) -- ^ Test function:
+                                             --   If 'test' 'lastUpdated' 'now' returns 'True'
+                                             --   the cache is considered still fresh
+                                             --   and returns the cached IO action
+             -> IO a                         -- ^ IO action to cache
+             -> IO (IO a)
+cachedIOWith test io = do
   initTime <- getCurrentTime
   cachedT <- atomically (newTVar (initTime, Left Uninitialized))
   return $ do
@@ -24,7 +46,7 @@ cachedIO interval io = do
       cached <- readTVar cachedT
       case cached of
         -- There's data in the cache and it's recent. Just return.
-        (lastUpdated, Right value) | addUTCTime interval lastUpdated > now ->
+        (lastUpdated, Right value) | test lastUpdated now ->
           return (return value)
         -- There's data in the cache, but it's stale. Update the cache timestamp
         -- to prevent a second thread from also executing the IO action. The second
@@ -45,5 +67,3 @@ cachedIO interval io = do
       newValue <- io
       atomically (writeTVar cachedT (now, Right newValue))
       return newValue
-
-
