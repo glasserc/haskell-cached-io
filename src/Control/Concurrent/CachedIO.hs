@@ -6,6 +6,7 @@ module Control.Concurrent.CachedIO (
 import Control.Concurrent.STM (atomically, newTVar, readTVar, writeTVar, retry)
 import Control.Monad (join)
 import Data.Time.Clock (NominalDiffTime, addUTCTime, getCurrentTime, UTCTime)
+import Control.Monad.IO.Class
 
 data State = Uninitialized | Initializing
 
@@ -15,9 +16,10 @@ data State = Uninitialized | Initializing
 -- The outer IO is responsible for setting up the cache. Use the inner one to
 -- either get the cached value or refresh, if the cache is older than 'interval'
 -- seconds.
-cachedIO :: NominalDiffTime -- ^ Number of seconds before refreshing cache
-         -> IO a            -- ^ IO action to cache
-         -> IO (IO a)
+cachedIO :: (MonadIO m)
+         => NominalDiffTime -- ^ Number of seconds before refreshing cache
+         -> m a             -- ^ IO action to cache
+         -> m (m a)
 cachedIO interval = cachedIOWith (intervalPassed interval)
 
 -- | Check if `interval` seconds have passed from the starting time
@@ -31,18 +33,19 @@ intervalPassed interval lastUpdated now = addUTCTime interval lastUpdated > now
 --
 -- The outer IO is responsible for setting up the cache. Use the inner one to
 -- either get the cached value or refresh
-cachedIOWith :: (UTCTime -> UTCTime -> Bool) -- ^ Test function:
+cachedIOWith :: (MonadIO m)
+             => (UTCTime -> UTCTime -> Bool) -- ^ Test function:
                                              --   If 'test' 'lastUpdated' 'now' returns 'True'
                                              --   the cache is considered still fresh
                                              --   and returns the cached IO action
-             -> IO a                         -- ^ IO action to cache
-             -> IO (IO a)
+             -> m a                          -- ^ action to cache
+             -> m (m a)
 cachedIOWith test io = do
-  initTime <- getCurrentTime
-  cachedT <- atomically (newTVar (initTime, Left Uninitialized))
+  initTime <- liftIO getCurrentTime
+  cachedT <- liftIO (atomically (newTVar (initTime, Left Uninitialized)))
   return $ do
-    now <- getCurrentTime
-    join . atomically $ do
+    now <- liftIO getCurrentTime
+    join . liftIO . atomically $ do
       cached <- readTVar cachedT
       case cached of
         -- There's data in the cache and it's recent. Just return.
@@ -65,5 +68,5 @@ cachedIOWith test io = do
   where
     refreshCache now cachedT = do
       newValue <- io
-      atomically (writeTVar cachedT (now, Right newValue))
-      return newValue
+      liftIO (atomically (writeTVar cachedT (now, Right newValue)))
+      liftIO (return newValue)
