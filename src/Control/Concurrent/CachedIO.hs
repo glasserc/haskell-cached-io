@@ -5,8 +5,8 @@ module Control.Concurrent.CachedIO (
 
 import Control.Concurrent.STM (atomically, newTVar, readTVar, writeTVar, retry)
 import Control.Monad (join)
+import Control.Monad.IO.Class (liftIO, MonadIO)
 import Data.Time.Clock (NominalDiffTime, addUTCTime, getCurrentTime, UTCTime)
-import Control.Monad.IO.Class
 
 data State = Uninitialized | Initializing
 
