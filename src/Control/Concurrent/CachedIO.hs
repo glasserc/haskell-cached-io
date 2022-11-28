@@ -3,12 +3,13 @@ module Control.Concurrent.CachedIO (
     cachedIOWith
     ) where
 
-import Control.Concurrent.STM (atomically, newTVar, readTVar, writeTVar, retry)
+import Control.Concurrent.STM (atomically, newTVar, readTVar, writeTVar, retry, TVar)
 import Control.Monad (join)
+import Control.Monad.Catch (MonadCatch, onException)
 import Control.Monad.IO.Class (liftIO, MonadIO)
 import Data.Time.Clock (NominalDiffTime, addUTCTime, getCurrentTime, UTCTime)
 
-data State = Uninitialized | Initializing
+data State a  = Uninitialized | Initializing | Updating a | Fresh UTCTime a
 
 -- | Cache an IO action, producing a version of this IO action that is cached
 -- for 'interval' seconds. The cache begins uninitialized.
@@ -16,10 +17,10 @@ data State = Uninitialized | Initializing
 -- The outer IO is responsible for setting up the cache. Use the inner one to
 -- either get the cached value or refresh, if the cache is older than 'interval'
 -- seconds.
-cachedIO :: (MonadIO m, MonadIO n)
+cachedIO :: (MonadIO m, MonadIO t, MonadCatch t)
          => NominalDiffTime -- ^ Number of seconds before refreshing cache
-         -> n a             -- ^ IO action to cache
-         -> m (n a)
+         -> t a             -- ^ IO action to cache
+         -> m (t a)
 cachedIO interval = cachedIOWith (secondsPassed interval)
 
 -- | Check if @starting time@ + @seconds@ is after @end time@
@@ -33,39 +34,43 @@ secondsPassed interval start end = addUTCTime interval start > end
 --
 -- The outer IO is responsible for setting up the cache. Use the inner one to
 -- either get the cached value or refresh
-cachedIOWith :: (MonadIO m, MonadIO n)
+cachedIOWith
+    :: (MonadIO m, MonadIO t, MonadCatch t)
     => (UTCTime -> UTCTime -> Bool) -- ^ Test function:
     --   If 'isCacheStillFresh' 'lastUpdated' 'now' returns 'True'
     --   the cache is considered still fresh and returns the cached IO action
-    -> n a                          -- ^ action to cache
-    -> m (n a)
+    -> t a                          -- ^ action to cache
+    -> m (t a)
 cachedIOWith isCacheStillFresh io = do
-  initTime <- liftIO getCurrentTime
-  cachedT <- liftIO (atomically (newTVar (initTime, Left Uninitialized)))
+  cachedT <- liftIO (atomically (newTVar Uninitialized))
   return $ do
     now <- liftIO getCurrentTime
     join . liftIO . atomically $ do
       cached <- readTVar cachedT
       case cached of
+        previousState@(Fresh lastUpdated value)
         -- There's data in the cache and it's recent. Just return.
-        (lastUpdated, Right value) | isCacheStillFresh lastUpdated now ->
-          return (return value)
-        -- There's data in the cache, but it's stale. Update the cache timestamp
-        -- to prevent a second thread from also executing the IO action. The second
-        -- thread would get the stale data instead. Refresh the cache and return.
-        (_, Right value) -> do
-          writeTVar cachedT (now, Right value)
-          return $ refreshCache now cachedT
+          | isCacheStillFresh lastUpdated now -> return (return value)
+        -- There's data in the cache, but it's stale. Update the cache state
+        -- to prevent a second thread from also executing the action. The second
+        -- thread will get the stale data instead.
+          | otherwise -> do
+            writeTVar cachedT (Updating value)
+            return $ refreshCache previousState cachedT
+        -- Another thread is already updating the cache, just return the stale value
+        Updating value -> return (return value)
         -- The cache is uninitialized. Mark the cache as initializing to block other
         -- threads. Initialize and return.
-        (_, Left Uninitialized) -> do
-          writeTVar cachedT (now, Left Initializing)
-          return $ refreshCache now cachedT
+        Uninitialized -> return $ refreshCache Uninitialized cachedT
         -- The cache is uninitialized and another thread is already attempting to
         -- initialize it. Block.
-        (_, Left Initializing) -> retry
+        Initializing -> retry
   where
-    refreshCache now cachedT = do
-      newValue <- io
-      liftIO (atomically (writeTVar cachedT (now, Right newValue)))
+    refreshCache previousState cachedT = do
+      newValue <- io `onException` restoreState previousState cachedT
+      now <- liftIO getCurrentTime
+      liftIO (atomically (writeTVar cachedT (Fresh now newValue)))
       liftIO (return newValue)
+
+restoreState :: (MonadIO m) => State a -> TVar (State a) -> m ()
+restoreState previousState cachedT = liftIO (atomically (writeTVar cachedT previousState))
