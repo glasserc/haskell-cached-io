@@ -16,10 +16,10 @@ data State = Uninitialized | Initializing
 -- The outer IO is responsible for setting up the cache. Use the inner one to
 -- either get the cached value or refresh, if the cache is older than 'interval'
 -- seconds.
-cachedIO :: (MonadIO m)
+cachedIO :: (MonadIO m, MonadIO n)
          => NominalDiffTime -- ^ Number of seconds before refreshing cache
-         -> m a             -- ^ IO action to cache
-         -> m (m a)
+         -> n a             -- ^ IO action to cache
+         -> m (n a)
 cachedIO interval = cachedIOWith (secondsPassed interval)
 
 -- | Check if @starting time@ + @seconds@ is after @end time@
@@ -33,12 +33,12 @@ secondsPassed interval start end = addUTCTime interval start > end
 --
 -- The outer IO is responsible for setting up the cache. Use the inner one to
 -- either get the cached value or refresh
-cachedIOWith :: (MonadIO m)
+cachedIOWith :: (MonadIO m, MonadIO n)
     => (UTCTime -> UTCTime -> Bool) -- ^ Test function:
     --   If 'isCacheStillFresh' 'lastUpdated' 'now' returns 'True'
     --   the cache is considered still fresh and returns the cached IO action
-    -> m a                          -- ^ action to cache
-    -> m (m a)
+    -> n a                          -- ^ action to cache
+    -> m (n a)
 cachedIOWith isCacheStillFresh io = do
   initTime <- liftIO getCurrentTime
   cachedT <- liftIO (atomically (newTVar (initTime, Left Uninitialized)))
