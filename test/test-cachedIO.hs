@@ -1,3 +1,7 @@
+module Main (
+    main
+    ) where
+
 import Control.Concurrent.CachedIO (cachedIO)
 import Data.List (isInfixOf)
 
