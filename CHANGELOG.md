@@ -13,4 +13,4 @@ version.
 
 ## 1.1.0.0 and prior
 
-These versions were published by @glasserc.
+These versions were published by [glasserc](https://github.com/glasserc).
